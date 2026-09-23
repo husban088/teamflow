@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   closestCorners,
@@ -14,6 +15,8 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import type { Board, Column, Task, BoardMember } from "@/lib/types";
 import { updateTask } from "@/lib/api";
+import { getErrorMessage } from "@/lib/utils";
+import { useToast } from "@/components/ui/Toast";
 import { BoardHeader } from "@/components/board/BoardHeader";
 import { ColumnLane } from "@/components/board/ColumnLane";
 import { TaskCard } from "@/components/board/TaskCard";
@@ -34,16 +37,26 @@ export function KanbanBoard({
   currentUserId: string;
 }) {
   const supabase = useMemo(() => createClient(), []);
+  const toast = useToast();
   const [columns, setColumns] = useState<Column[]>(initialColumns);
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [members, setMembers] = useState<BoardMember[]>(initialMembers);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [onlineUsers, setOnlineUsers] = useState<{ id: string; name: string }[]>([]);
+  const [onlineUsers, setOnlineUsers] = useState<
+    { id: string; name: string }[]
+  >([]);
 
+  // Mouse: drag after moving 6px (so a plain click still opens the card).
+  // Touch (phone/tablet): press and hold ~200ms, then drag with your finger.
+  // The short hold is what lets you still scroll the board normally with a
+  // quick swipe, while a press-and-hold picks the card up.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 8 },
+    }),
   );
 
   // ---- Realtime data sync -------------------------------------------------
@@ -52,10 +65,17 @@ export function KanbanBoard({
       .channel(`board-data-${board.id}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "tasks", filter: `board_id=eq.${board.id}` },
+        {
+          event: "*",
+          schema: "public",
+          table: "tasks",
+          filter: `board_id=eq.${board.id}`,
+        },
         async (payload) => {
           if (payload.eventType === "DELETE") {
-            setTasks((prev) => prev.filter((t) => t.id !== (payload.old as Task).id));
+            setTasks((prev) =>
+              prev.filter((t) => t.id !== (payload.old as Task).id),
+            );
             return;
           }
           const row = payload.new as Task;
@@ -71,22 +91,31 @@ export function KanbanBoard({
               ? prev.map((t) => (t.id === nextTask.id ? nextTask : t))
               : [...prev, nextTask];
           });
-        }
+        },
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "columns", filter: `board_id=eq.${board.id}` },
+        {
+          event: "*",
+          schema: "public",
+          table: "columns",
+          filter: `board_id=eq.${board.id}`,
+        },
         (payload) => {
           if (payload.eventType === "DELETE") {
-            setColumns((prev) => prev.filter((c) => c.id !== (payload.old as Column).id));
+            setColumns((prev) =>
+              prev.filter((c) => c.id !== (payload.old as Column).id),
+            );
             return;
           }
           const row = payload.new as Column;
           setColumns((prev) => {
             const exists = prev.some((c) => c.id === row.id);
-            return exists ? prev.map((c) => (c.id === row.id ? row : c)) : [...prev, row];
+            return exists
+              ? prev.map((c) => (c.id === row.id ? row : c))
+              : [...prev, row];
           });
-        }
+        },
       )
       .on(
         "postgres_changes",
@@ -102,7 +131,7 @@ export function KanbanBoard({
             .select("*, profile:profiles(*)")
             .eq("board_id", board.id);
           if (data) setMembers(data as BoardMember[]);
-        }
+        },
       )
       .subscribe();
 
@@ -143,30 +172,28 @@ export function KanbanBoard({
   }, [board.id, currentUserId, supabase]);
 
   // ---- Optimistic card creation -------------------------------------------
-  // ColumnLane used to only add a new card once the realtime "tasks" event
-  // echoed back — that's an extra Supabase round trip on top of the insert
-  // itself, which is what made new cards feel slow to appear. Now the card
-  // the user typed is shown immediately with a temporary id, then swapped
-  // for the real row (or dropped) once the request settles.
   const handleOptimisticTask = useCallback((task: Task) => {
     setTasks((prev) => [...prev, task]);
   }, []);
 
-  const handleTaskSettled = useCallback((tempId: string, saved: Task | null) => {
-    setTasks((prev) => {
-      const withoutTemp = prev.filter((t) => t.id !== tempId);
-      if (!saved) return withoutTemp;
-      const alreadyPresent = withoutTemp.some((t) => t.id === saved.id);
-      return alreadyPresent ? withoutTemp : [...withoutTemp, saved];
-    });
-  }, []);
+  const handleTaskSettled = useCallback(
+    (tempId: string, saved: Task | null) => {
+      setTasks((prev) => {
+        const withoutTemp = prev.filter((t) => t.id !== tempId);
+        if (!saved) return withoutTemp;
+        const alreadyPresent = withoutTemp.some((t) => t.id === saved.id);
+        return alreadyPresent ? withoutTemp : [...withoutTemp, saved];
+      });
+    },
+    [],
+  );
 
   const tasksByColumn = useCallback(
     (columnId: string) =>
       tasks
         .filter((t) => t.column_id === columnId)
         .sort((a, b) => a.position - b.position),
-    [tasks]
+    [tasks],
   );
 
   function handleDragStart(event: DragStartEvent) {
@@ -182,19 +209,31 @@ export function KanbanBoard({
     const activeTaskItem = tasks.find((t) => t.id === active.id);
     if (!activeTaskItem) return;
 
+    // Cards that are still being created (temporary id) can't be moved yet.
+    if (String(activeTaskItem.id).startsWith("temp-")) return;
+
     const overId = String(over.id);
     const overIsColumn = columns.some((c) => c.id === overId);
     const destColumnId = overIsColumn
       ? overId
-      : tasks.find((t) => t.id === overId)?.column_id ?? activeTaskItem.column_id;
+      : (tasks.find((t) => t.id === overId)?.column_id ??
+        activeTaskItem.column_id);
 
-    const destTasks = tasksByColumn(destColumnId).filter((t) => t.id !== activeTaskItem.id);
+    const destTasks = tasksByColumn(destColumnId).filter(
+      (t) => t.id !== activeTaskItem.id,
+    );
     let destIndex = destTasks.length;
     if (!overIsColumn) {
       const overIndex = destTasks.findIndex((t) => t.id === overId);
       if (overIndex !== -1) destIndex = overIndex;
     }
-    destTasks.splice(destIndex, 0, { ...activeTaskItem, column_id: destColumnId });
+    destTasks.splice(destIndex, 0, {
+      ...activeTaskItem,
+      column_id: destColumnId,
+    });
+
+    // Keep a copy so we can put everything back if saving fails.
+    const snapshot = tasks;
 
     // Optimistic local update
     setTasks((prev) => {
@@ -207,16 +246,28 @@ export function KanbanBoard({
     // Persist: moved task + resequence destination column
     try {
       await Promise.all(
-        destTasks.map((t, i) =>
-          updateTask(t.id, { column_id: destColumnId, position: i })
-        )
+        destTasks
+          .filter((t) => !String(t.id).startsWith("temp-"))
+          .map((t, i) =>
+            updateTask(t.id, { column_id: destColumnId, position: i }),
+          ),
       );
     } catch (err) {
       console.error(err);
+      setTasks(snapshot);
+      toast.error("Couldn't move card", getErrorMessage(err));
     }
   }
 
+  function handleDragCancel() {
+    setActiveTask(null);
+  }
+
   const openTask = tasks.find((t) => t.id === openTaskId) ?? null;
+  const sortedColumns = useMemo(
+    () => [...columns].sort((a, b) => a.position - b.position),
+    [columns],
+  );
 
   return (
     <div className="flex h-full min-w-0 flex-col">
@@ -232,21 +283,20 @@ export function KanbanBoard({
         collisionDetection={closestCorners}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
       >
         <div className="flex flex-1 gap-4 overflow-x-auto p-4 sm:p-6">
-          {columns
-            .sort((a, b) => a.position - b.position)
-            .map((column) => (
-              <ColumnLane
-                key={column.id}
-                column={column}
-                tasks={tasksByColumn(column.id)}
-                boardId={board.id}
-                onOpenTask={setOpenTaskId}
-                onOptimisticTask={handleOptimisticTask}
-                onTaskSettled={handleTaskSettled}
-              />
-            ))}
+          {sortedColumns.map((column) => (
+            <ColumnLane
+              key={column.id}
+              column={column}
+              tasks={tasksByColumn(column.id)}
+              boardId={board.id}
+              onOpenTask={setOpenTaskId}
+              onOptimisticTask={handleOptimisticTask}
+              onTaskSettled={handleTaskSettled}
+            />
+          ))}
         </div>
 
         <DragOverlay>

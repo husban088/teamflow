@@ -30,43 +30,59 @@ export default function LoginPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (loading) return;
+
     const validation = validate();
     setErrors(validation);
     if (Object.keys(validation).length > 0) {
-      toast.error("Check the form", "Fix the highlighted fields and try again.");
+      toast.error(
+        "Check the form",
+        "Fix the highlighted fields and try again.",
+      );
       return;
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-    setLoading(false);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
-    if (error) {
-      toast.error("Couldn't log you in", error.message);
-      return;
+      if (error) {
+        setLoading(false);
+        toast.error("Couldn't log you in", error.message);
+        return;
+      }
+
+      toast.success("Welcome back", "Taking you to your dashboard.");
+      // Full page load (not router.replace) so the browser sends the fresh
+      // session cookie and /dashboard's middleware check passes first try.
+      // The button stays in its loading state until the new page opens.
+      window.location.assign("/dashboard");
+    } catch (err) {
+      setLoading(false);
+      toast.error(
+        "Couldn't log you in",
+        err instanceof Error
+          ? err.message
+          : "Something went wrong. Please try again.",
+      );
     }
-    toast.success("Welcome back", "Taking you to your boards.");
-    // A soft router.replace() here used to need two clicks: signInWithPassword
-    // resolves before the browser has finished writing the new session into
-    // the cookie the middleware reads, so the very next navigation could
-    // still see "no user" and bounce back to /login. A full page load makes
-    // the browser send the request with the cookie already attached, so
-    // /dashboard's middleware check always sees the fresh session on the
-    // first try.
-    window.location.assign("/dashboard");
   }
 
   return (
     <AuthShell
+      showReload
       title="Welcome back"
       subtitle="Log in to see what your team moved overnight."
       footer={
         <>
           New to TeamFlow?{" "}
-          <Link href="/signup" className="font-medium text-violet hover:underline">
+          <Link
+            href="/signup"
+            className="font-medium text-violet hover:underline"
+          >
             Create an account
           </Link>
         </>
@@ -93,7 +109,8 @@ export default function LoginPage() {
             value={password}
             onChange={(e) => {
               setPassword(e.target.value);
-              if (errors.password) setErrors((p) => ({ ...p, password: undefined }));
+              if (errors.password)
+                setErrors((p) => ({ ...p, password: undefined }));
             }}
             placeholder="••••••••"
           />

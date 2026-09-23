@@ -4,7 +4,18 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Waypoints, Plus, LogOut, LayoutGrid, Menu, X, Trash2, Home } from "lucide-react";
+import {
+  Waypoints,
+  Plus,
+  LogOut,
+  LayoutGrid,
+  LayoutDashboard,
+  User,
+  Menu,
+  X,
+  Trash2,
+  Home,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar } from "@/components/ui/Avatar";
 import { cn, getErrorMessage } from "@/lib/utils";
@@ -31,18 +42,26 @@ export function Sidebar({
   const [showNewBoard, setShowNewBoard] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const boardList = boards.filter((b) => !deletedIds.has(b.id));
 
+  const navLinks = [
+    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/dashboard/profile", label: "Profile", icon: User },
+  ];
+
   async function handleLogout() {
-    await supabase.auth.signOut();
-    // Full page load, not router.push() — signOut() clears the session
-    // cookie asynchronously, and a soft navigation can render the next page
-    // before that's finished (or leave the singleton Supabase client and
-    // in-memory board state from this session still around). A hard reload
-    // guarantees a clean, logged-out landing page, and that the next visit
-    // to /login genuinely asks for credentials again.
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error(err);
+    }
+    // Full page load, not router.push() — guarantees the session cookie is
+    // gone and a clean logged-out landing page renders.
     window.location.assign("/");
   }
 
@@ -51,19 +70,16 @@ export function Sidebar({
     setDeleting(true);
     try {
       await deleteBoard(deleteTarget.id);
-      // deleteBoard() throwing means it's genuinely gone from the DB now
-      // (see lib/api.ts) — safe to hide it immediately here rather than
-      // waiting on a server round trip.
       setDeletedIds((prev) => new Set(prev).add(deleteTarget.id));
-      toast.success("Board deleted", `"${deleteTarget.name}" and everything on it is gone.`);
-      const wasActive = pathname?.includes(`/dashboard/board/${deleteTarget.id}`);
+      toast.success(
+        "Board deleted",
+        `"${deleteTarget.name}" and everything on it is gone.`,
+      );
+      const wasActive = pathname?.includes(
+        `/dashboard/board/${deleteTarget.id}`,
+      );
       setDeleteTarget(null);
       if (wasActive) {
-        // Navigate off the now-deleted board's page first, then refresh so
-        // the layout refetches the boards list once we're safely on a route
-        // that still exists — refreshing while still "on" the deleted
-        // board's page is what could surface the "this board doesn't exist"
-        // screen instead of a clean redirect.
         router.push("/dashboard");
       }
       router.refresh();
@@ -77,7 +93,11 @@ export function Sidebar({
   const content = (
     <>
       <div className="flex items-center justify-between px-1">
-        <Link href="/dashboard" className="group flex items-center gap-2 font-display text-[15px] font-semibold">
+        <Link
+          href="/dashboard"
+          onClick={() => setMobileOpen(false)}
+          className="group flex items-center gap-2 font-display text-[15px] font-semibold"
+        >
           <span className="icon-pop flex h-7 w-7 items-center justify-center rounded-lg bg-violet-gradient text-white">
             <Waypoints size={15} />
           </span>
@@ -92,7 +112,9 @@ export function Sidebar({
             <Home size={16} />
           </Link>
           <button
+            type="button"
             onClick={() => setMobileOpen(false)}
+            aria-label="Close menu"
             className="rounded-lg p-1.5 text-muted hover:bg-panel-raised lg:hidden"
           >
             <X size={18} />
@@ -100,9 +122,39 @@ export function Sidebar({
         </div>
       </div>
 
+      <nav className="mt-6 space-y-0.5">
+        {navLinks.map((item) => {
+          const active = pathname === item.href;
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={() => setMobileOpen(false)}
+              className={cn(
+                "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13.5px] font-medium transition-all",
+                active
+                  ? "bg-violet/10 text-text"
+                  : "text-muted hover:bg-panel-raised hover:text-text",
+              )}
+            >
+              <Icon
+                size={15}
+                className={cn(
+                  "shrink-0",
+                  active ? "text-violet" : "text-muted-dim",
+                )}
+              />
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+
       <button
+        type="button"
         onClick={() => setShowNewBoard(true)}
-        className="press mt-6 flex w-full items-center gap-2 rounded-xl border border-dashed border-line-solid px-3 py-2.5 text-[13.5px] font-medium text-muted transition-all hover:-translate-y-0.5 hover:border-violet/50 hover:bg-panel-raised hover:text-text hover:shadow-[0_10px_24px_-14px_rgba(76,29,149,0.4)]"
+        className="press mt-4 flex w-full items-center gap-2 rounded-xl border border-dashed border-line-solid px-3 py-2.5 text-[13.5px] font-medium text-muted transition-all hover:-translate-y-0.5 hover:border-violet/50 hover:bg-panel-raised hover:text-text hover:shadow-[0_10px_24px_-14px_rgba(76,29,149,0.4)]"
       >
         <Plus size={15} />
         New board
@@ -122,7 +174,7 @@ export function Sidebar({
               key={b.id}
               className={cn(
                 "group/board flex items-center gap-0.5 rounded-lg pr-1 transition-all",
-                active ? "bg-violet/10" : "hover:bg-panel-raised"
+                active ? "bg-violet/10" : "hover:bg-panel-raised",
               )}
             >
               <Link
@@ -130,10 +182,16 @@ export function Sidebar({
                 onClick={() => setMobileOpen(false)}
                 className={cn(
                   "flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13.5px] transition-all hover:translate-x-0.5",
-                  active ? "text-text" : "text-muted hover:text-text"
+                  active ? "text-text" : "text-muted hover:text-text",
                 )}
               >
-                <LayoutGrid size={15} className={cn("shrink-0", active ? "text-violet" : "text-muted-dim")} />
+                <LayoutGrid
+                  size={15}
+                  className={cn(
+                    "shrink-0",
+                    active ? "text-violet" : "text-muted-dim",
+                  )}
+                />
                 <span className="min-w-0 flex-1 truncate">{b.name}</span>
               </Link>
               <button
@@ -145,7 +203,7 @@ export function Sidebar({
                 }}
                 aria-label={`Delete ${b.name}`}
                 title="Delete board"
-                className="shrink-0 rounded-md p-1.5 text-muted-dim opacity-0 transition-all hover:bg-coral/10 hover:text-coral group-hover/board:opacity-100 focus-visible:opacity-100"
+                className="shrink-0 rounded-md p-1.5 text-muted-dim opacity-100 transition-all hover:bg-coral/10 hover:text-coral focus-visible:opacity-100 lg:opacity-0 lg:group-hover/board:opacity-100"
               >
                 <Trash2 size={13} />
               </button>
@@ -163,13 +221,17 @@ export function Sidebar({
         >
           <Avatar name={userName} src={avatarUrl} size={32} />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] font-medium text-text">{userName}</p>
+            <p className="truncate text-[13px] font-medium text-text">
+              {userName}
+            </p>
             <p className="truncate text-[11.5px] text-muted-dim">{userEmail}</p>
           </div>
         </Link>
         <button
+          type="button"
           onClick={handleLogout}
           title="Log out"
+          aria-label="Log out"
           className="rounded-lg p-1.5 text-muted-dim transition-colors hover:bg-panel-raised hover:text-coral"
         >
           <LogOut size={15} />
@@ -181,7 +243,9 @@ export function Sidebar({
   return (
     <>
       <button
+        type="button"
         onClick={() => setMobileOpen(true)}
+        aria-label="Open menu"
         className="fixed left-4 top-4 z-30 rounded-lg border border-line-solid bg-panel p-2 text-text shadow-sm lg:hidden"
       >
         <Menu size={18} />
@@ -211,7 +275,10 @@ export function Sidebar({
         </motion.div>
       )}
 
-      <NewBoardModal open={showNewBoard} onClose={() => setShowNewBoard(false)} />
+      <NewBoardModal
+        open={showNewBoard}
+        onClose={() => setShowNewBoard(false)}
+      />
 
       <ConfirmModal
         open={!!deleteTarget}

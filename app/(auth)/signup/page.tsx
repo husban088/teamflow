@@ -32,7 +32,8 @@ export default function SignupPage() {
     if (!fullName.trim()) next.fullName = "Enter your full name.";
     if (!email.trim()) next.email = "Enter your email address.";
     if (!password) next.password = "Enter a password.";
-    else if (password.length < 6) next.password = "Password must be at least 6 characters.";
+    else if (password.length < 6)
+      next.password = "Password must be at least 6 characters.";
     if (!confirmPassword) next.confirmPassword = "Confirm your password.";
     else if (password && confirmPassword !== password)
       next.confirmPassword = "Passwords don't match.";
@@ -41,52 +42,87 @@ export default function SignupPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (loading) return;
+
     const validation = validate();
     setErrors(validation);
     if (Object.keys(validation).length > 0) {
-      toast.error("Check the form", "Fix the highlighted fields and try again.");
+      toast.error(
+        "Check the form",
+        "Fix the highlighted fields and try again.",
+      );
       return;
     }
 
     setLoading(true);
-    const { data, error } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: { data: { full_name: fullName.trim() } },
-    });
-    setLoading(false);
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: { data: { full_name: fullName.trim() } },
+      });
 
-    if (error) {
-      toast.error("Couldn't create your account", error.message);
-      return;
+      if (error) {
+        setLoading(false);
+        toast.error("Couldn't create your account", error.message);
+        return;
+      }
+
+      // Session came back right away (email confirmation is off) -> dashboard.
+      if (data.session) {
+        toast.success("Welcome to TeamFlow", "Your account is ready.");
+        // Full page load so the fresh session cookie is sent with the request.
+        window.location.assign("/dashboard");
+        return;
+      }
+
+      // No session yet. Try signing in directly; this works when email
+      // confirmation is off but signUp didn't return a session.
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (!signInError) {
+        toast.success("Welcome to TeamFlow", "Your account is ready.");
+        window.location.assign("/dashboard");
+        return;
+      }
+
+      // Email confirmation is required by the project: ask the user to confirm.
+      setLoading(false);
+      toast.success("Check your inbox", "We sent you a confirmation link.");
+      setSent(true);
+    } catch (err) {
+      setLoading(false);
+      toast.error(
+        "Couldn't create your account",
+        err instanceof Error
+          ? err.message
+          : "Something went wrong. Please try again.",
+      );
     }
-    if (data.session) {
-      toast.success("Welcome to TeamFlow", "Your account is ready.");
-      // Full page load, not router.replace() — same reasoning as the login
-      // page: guarantees the browser has the fresh session cookie attached
-      // before /dashboard's middleware check runs.
-      window.location.assign("/dashboard");
-      return;
-    }
-    toast.success("Check your inbox", "We sent you a confirmation link.");
-    setSent(true);
   }
 
   if (sent) {
     return (
       <AuthShell
+        showReload
         title="Check your inbox"
         subtitle=""
         footer={
-          <Link href="/login" className="font-medium text-violet hover:underline">
+          <Link
+            href="/login"
+            className="font-medium text-violet hover:underline"
+          >
             Back to log in
           </Link>
         }
       >
         <div className="flex items-start gap-2 rounded-xl border border-teal/30 bg-teal/10 px-3.5 py-3 text-[13px] text-teal">
           <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
-          We sent a confirmation link to <strong className="font-medium">{email}</strong>.
-          Click it, then come back and log in.
+          We sent a confirmation link to{" "}
+          <strong className="font-medium">{email}</strong>. Click it, then come
+          back and log in.
         </div>
       </AuthShell>
     );
@@ -94,12 +130,16 @@ export default function SignupPage() {
 
   return (
     <AuthShell
+      showReload
       title="Create your workspace"
       subtitle="Free for teams of any size. No card needed."
       footer={
         <>
           Already have an account?{" "}
-          <Link href="/login" className="font-medium text-violet hover:underline">
+          <Link
+            href="/login"
+            className="font-medium text-violet hover:underline"
+          >
             Log in
           </Link>
         </>
@@ -112,7 +152,8 @@ export default function SignupPage() {
             value={fullName}
             onChange={(e) => {
               setFullName(e.target.value);
-              if (errors.fullName) setErrors((p) => ({ ...p, fullName: undefined }));
+              if (errors.fullName)
+                setErrors((p) => ({ ...p, fullName: undefined }));
             }}
             placeholder="Ayesha Khan"
             autoComplete="name"
@@ -131,14 +172,19 @@ export default function SignupPage() {
             placeholder="you@company.com"
           />
         </Field>
-        <Field label="Password" hint="At least 6 characters." error={errors.password}>
+        <Field
+          label="Password"
+          hint="At least 6 characters."
+          error={errors.password}
+        >
           <PasswordInput
             invalid={!!errors.password}
             autoComplete="new-password"
             value={password}
             onChange={(e) => {
               setPassword(e.target.value);
-              if (errors.password) setErrors((p) => ({ ...p, password: undefined }));
+              if (errors.password)
+                setErrors((p) => ({ ...p, password: undefined }));
             }}
             placeholder="••••••••"
           />
@@ -150,7 +196,8 @@ export default function SignupPage() {
             value={confirmPassword}
             onChange={(e) => {
               setConfirmPassword(e.target.value);
-              if (errors.confirmPassword) setErrors((p) => ({ ...p, confirmPassword: undefined }));
+              if (errors.confirmPassword)
+                setErrors((p) => ({ ...p, confirmPassword: undefined }));
             }}
             placeholder="••••••••"
           />

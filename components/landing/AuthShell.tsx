@@ -1,25 +1,34 @@
 import Link from "next/link";
 import { Waypoints } from "lucide-react";
+import { ReloadButton } from "@/components/ui/ReloadButton";
 
 export function AuthShell({
   title,
   subtitle,
   children,
   footer,
+  showReload = false,
 }: {
   title: string;
   subtitle: string;
   children: React.ReactNode;
   footer: React.ReactNode;
+  showReload?: boolean;
 }) {
   return (
     <div className="grain flex min-h-dvh items-center justify-center overflow-x-hidden px-5 py-12">
       <div
         className="pointer-events-none fixed -top-40 left-1/2 h-[500px] w-[800px] -translate-x-1/2 opacity-20 blur-[120px]"
-        style={{ background: "radial-gradient(closest-side, var(--violet), transparent)" }}
+        style={{
+          background:
+            "radial-gradient(closest-side, var(--violet), transparent)",
+        }}
       />
       <div className="relative w-full max-w-[400px] animate-fade-up">
-        <Link href="/" className="mb-8 flex items-center justify-center gap-2 font-display text-[17px] font-semibold">
+        <Link
+          href="/"
+          className="mb-8 flex items-center justify-center gap-2 font-display text-[17px] font-semibold"
+        >
           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-gradient text-white">
             <Waypoints size={16} />
           </span>
@@ -33,6 +42,12 @@ export function AuthShell({
         </div>
 
         <p className="mt-6 text-center text-[14px] text-muted">{footer}</p>
+
+        {showReload && (
+          <div className="mt-4 flex justify-center">
+            <ReloadButton />
+          </div>
+        )}
       </div>
     </div>
   );

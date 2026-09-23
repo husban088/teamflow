@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { CalendarClock } from "lucide-react";
@@ -16,15 +17,28 @@ export function TaskCard({
   onClick?: () => void;
   overlay?: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
     id: task.id,
     disabled: overlay,
   });
 
-  const style = {
+  // select-none + no long-press callout: on phones/tablets a press-and-hold
+  // would otherwise start text selection or the browser's context menu
+  // instead of picking the card up for dragging.
+  const style: CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
+    WebkitTouchCallout: "none",
+    WebkitUserSelect: "none",
+    userSelect: "none",
   };
 
   const deadline = formatDeadline(task.deadline);
@@ -38,8 +52,8 @@ export function TaskCard({
       {...(overlay ? {} : listeners)}
       onClick={onClick}
       className={cn(
-        "glow-ring group cursor-pointer rounded-lg border border-line-solid bg-panel p-3",
-        overlay && "rotate-2 shadow-2xl"
+        "glow-ring group cursor-pointer select-none rounded-lg border border-line-solid bg-panel p-3",
+        overlay && "rotate-2 shadow-2xl",
       )}
     >
       <div className="mb-2 flex items-center gap-1.5">
@@ -47,7 +61,9 @@ export function TaskCard({
           className="h-1.5 w-1.5 rounded-full transition-transform duration-200 group-hover:scale-150"
           style={{ background: priority.color }}
         />
-        <span className="text-[10.5px] text-muted-dim">{priority.label} priority</span>
+        <span className="text-[10.5px] text-muted-dim">
+          {priority.label} priority
+        </span>
       </div>
 
       <p className="text-[13.5px] leading-snug text-text">{task.title}</p>
@@ -60,7 +76,7 @@ export function TaskCard({
                 "flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px]",
                 deadline.tone === "overdue" && "bg-coral/15 text-coral",
                 deadline.tone === "soon" && "bg-amber/15 text-amber",
-                deadline.tone === "normal" && "bg-panel-raised text-muted"
+                deadline.tone === "normal" && "bg-panel-raised text-muted",
               )}
             >
               <CalendarClock size={11} />
@@ -69,7 +85,12 @@ export function TaskCard({
           ) : (
             <span />
           )}
-          {task.assignee && <Avatar name={task.assignee.full_name || task.assignee.email} size={22} />}
+          {task.assignee && (
+            <Avatar
+              name={task.assignee.full_name || task.assignee.email}
+              size={22}
+            />
+          )}
         </div>
       )}
     </div>
